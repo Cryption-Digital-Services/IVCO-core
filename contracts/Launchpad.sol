@@ -70,349 +70,262 @@ contract Ownable is Context {
     }
 }
 
-// import ierc20 & safemath & non-standard
-interface IERC20 {
-    function totalSupply() external view returns (uint256);
+// From https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/EnumerableSet.sol
+// Subject to the MIT license.
+/**
+ * @dev Library for managing
+ * https://en.wikipedia.org/wiki/Set_(abstract_data_type)[sets] of primitive
+ * types.
+ *
+ * Sets have the following properties:
+ *
+ * - Elements are added, removed, and checked for existence in constant time
+ * (O(1)).
+ * - Elements are enumerated in O(n). No guarantees are made on the ordering.
+ *
+ * ```
+ * contract Example {
+ *     // Add the library methods
+ *     using EnumerableSet for EnumerableSet.AddressSet;
+ *
+ *     // Declare a set state variable
+ *     EnumerableSet.AddressSet private mySet;
+ * }
+ * ```
+ *
+ * As of v3.0.0, only sets of type `address` (`AddressSet`) and `uint256`
+ * (`UintSet`) are supported.
+ */
+library EnumerableSet {
+    // To implement this library for multiple types with as little code
+    // repetition as possible, we write it in terms of a generic Set type with
+    // bytes32 values.
+    // The Set implementation uses private functions, and user-facing
+    // implementations (such as AddressSet) are just wrappers around the
+    // underlying Set.
+    // This means that we can only create new EnumerableSets for types that fit
+    // in bytes32.
 
-    function balanceOf(address account) external view returns (uint256);
+    struct Set {
+        // Storage of set values
+        bytes32[] _values;
 
-    function allowance(address owner, address spender)
-        external
-        view
-        returns (uint256);
-
-    function transfer(address recipient, uint256 amount)
-        external
-        returns (bool);
-
-    function approve(address spender, uint256 amount) external returns (bool);
-
-    function transferFrom(
-        address sender,
-        address recipient,
-        uint256 amount
-    ) external returns (bool);
-
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(
-        address indexed owner,
-        address indexed spender,
-        uint256 value
-    );
-}
-
-library SafeMath {
-    function sub(uint256 a, uint256 b) internal pure returns (uint256) {
-        assert(b <= a);
-        return a - b;
-    }
-
-    function add(uint256 a, uint256 b) internal pure returns (uint256) {
-        uint256 c = a + b;
-        assert(c >= a);
-        return c;
-    }
-
-    function mul(uint256 a, uint256 b) internal pure returns (uint256) {
-        // Gas optimization: this is cheaper than requiring 'a' not being zero, but the
-        // benefit is lost if 'b' is also tested.
-        // See: https://github.com/OpenZeppelin/openzeppelin-contracts/pull/522
-        if (a == 0) {
-            return 0;
-        }
-
-        uint256 c = a * b;
-        require(c / a == b, "SafeMath: multiplication overflow");
-
-        return c;
-    }
-
-    function div(uint256 a, uint256 b) internal pure returns (uint256) {
-        return div(a, b, "SafeMath: division by zero");
-    }
-
-    function div(
-        uint256 a,
-        uint256 b,
-        string memory errorMessage
-    ) internal pure returns (uint256) {
-        // Solidity only automatically asserts when dividing by 0
-        require(b > 0, errorMessage);
-        uint256 c = a / b;
-        // assert(a == b * c + a % b); // There is no case in which this doesn't hold
-
-        return c;
-    }
-}
-
-interface INonStandardERC20 {
-    function totalSupply() external view returns (uint256);
-
-    function balanceOf(address owner) external view returns (uint256 balance);
-
-    ///
-    /// !!!!!!!!!!!!!!
-    /// !!! NOTICE !!! `transfer` does not return a value, in violation of the ERC-20 specification
-    /// !!!!!!!!!!!!!!
-    ///
-
-    function transfer(address dst, uint256 amount) external;
-
-    ///
-    /// !!!!!!!!!!!!!!
-    /// !!! NOTICE !!! `transferFrom` does not return a value, in violation of the ERC-20 specification
-    /// !!!!!!!!!!!!!!
-    ///
-
-    function transferFrom(
-        address src,
-        address dst,
-        uint256 amount
-    ) external;
-
-    function approve(address spender, uint256 amount)
-        external
-        returns (bool success);
-
-    function allowance(address owner, address spender)
-        external
-        view
-        returns (uint256 remaining);
-
-    event Transfer(address indexed from, address indexed to, uint256 amount);
-    event Approval(
-        address indexed owner,
-        address indexed spender,
-        uint256 amount
-    );
-}
-
-// helper methods for interacting with ERC20 tokens that do not consistently return true/false
-library TransferHelper {
-    function safeApprove(address token, address to, uint value) internal {
-        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(0x095ea7b3, to, value));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), 'TransferHelper: APPROVE_FAILED');
-    }
-
-    function safeTransfer(address token, address to, uint value) internal {
-        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(0xa9059cbb, to, value));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), 'TransferHelper: TRANSFER_FAILED');
-    }
-
-    function safeTransferFrom(address token, address from, address to, uint value) internal {
-        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(0x23b872dd, from, to, value));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), 'TransferHelper: TRANSFER_FROM_FAILED');
-    }
-
-}
-
-contract Crowdsale  {
-    using SafeMath for uint256;
-
-    address public owner;
-    
-    uint256 public rate;
-    bool public crowdsaleOver;
-    IERC20 public token;
-    mapping(address => uint256) public claimable;
-    IERC20 private usdc = IERC20(0xb7a4F3E9097C08dA09517b5aB877F7a917224ede);
-    IERC20 private dai = IERC20(0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa);
-    IERC20 private usdt = IERC20(0x07de306FF27a2B630B1141956844eB1552B956B5);
-    
-    /// @notice information stuct on each user than stakes LP tokens.
-    struct UserInfo {
-        uint256 amount;     // How many tokens the user has invested.
-        uint256 lastInvestedTime; // Timestamp when user invested last time.
-    }
-    
-    /// @notice all the settings for this farm in one struct
-    struct CrowdsaleInfo {
-        IERC20 token;
-        uint256 startTime;
-        uint256 endTime;
-        uint256 cliffDurationInSecs;
-    }
-    
-    CrowdsaleInfo public crowdsaleInfo;
-
-    constructor(uint256 _rate, address _token,address _owner) public {
-        rate = _rate;
-        token = IERC20(_token);
-        crowdsaleOver = false;
-        owner = _owner;
-    }
-    
-    /**
-     * @notice initialize the Crowdsale contract. This is called only once upon Crowdsale creation and the Launchpad ensures the Crowdsale has the correct paramaters
-     */
-    function init (IERC20 _tokenAddress,address _owner, uint256 _amount, uint256 _rate, uint256 _startTime, uint256 _endTime,uint256 _cliffDurationInSecs) public {
-        require(msg.sender == address(Launchpad), 'FORBIDDEN');
-        
-        TransferHelper.safeTransferFrom(address(_tokenAddress), msg.sender, address(this), _amount);
-        crowdsaleInfo.token = _tokenAddress;
-        
-        crowdsaleInfo.startTime = _startTime;
-        crowdsaleInfo.endTime = _endTime;
-        
-        crowdsaleInfo.cliffDurationInSecs = _cliffDurationInSecs;
-    }
-
-
-    modifier iscrowdsaleOver() {
-        require(crowdsaleOver == true, "Crowdsale is ongoing");
-        _;
-    }
-
-    function endCrowdsale() external onlyOwner {
-        crowdsaleOver = true;
-    }
-    
-    function buyTokenWithStableCoin(IERC20 _stableCoin, uint256 amount)
-        external
-    {
-        require(crowdsaleOver == false, "Crowdsale has ended,invest in other crowdsale");
-
-        if (_stableCoin == usdt) {
-            claimable[msg.sender] = claimable[msg.sender].add(
-                amount.mul(1e12).mul(rate).div(1e18)
-            );
-            doTransferIn(address(_stableCoin), msg.sender, amount);
-        } else if (_stableCoin == usdc) {
-            claimable[msg.sender] = claimable[msg.sender].add(
-                amount.mul(1e12).mul(rate).div(1e18)
-            );
-            _stableCoin.transferFrom(msg.sender, address(this), amount);
-        } else if (_stableCoin == dai) {
-            
-            claimable[msg.sender] = claimable[msg.sender].add(
-                amount.mul(rate).div(1e18)
-            );
-            _stableCoin.transferFrom(msg.sender, address(this), amount);
-        }
-    }
-
-    function claim() external iscrowdsaleOver {
-        // it checks for user msg.sender claimable amount and transfer them to msg.sender
-        require(claimable[msg.sender] > 0, "NO tokens left to be claim");
-        token.transfer(msg.sender, claimable[msg.sender]);
-        claimable[msg.sender] = 0;
-    }
-
-    function getEthBalance() public view returns (uint256) {
-        return address(this).balance;
-    }
-
-    function adminTransferEthFund() external onlyOwner {
-        msg.sender.transfer(address(this).balance);
-    }
-
-    function getContractTokenBalance(IERC20 _token)
-        public
-        view
-        returns (uint256)
-    {
-        return _token.balanceOf(address(this));
-    }
-
-    function fundsWithdrawal(IERC20 _token, uint256 value) external onlyOwner {
-        require(
-            getContractTokenBalance(_token) >= value,
-            "the contract doesnt have tokens"
-        );
-        if (_token == usdt) {
-            return doTransferOut(address(_token), msg.sender, value);
-        }
-
-        _token.transfer(msg.sender, value);
-    }
-
-    function doTransferIn(
-        address tokenAddress,
-        address from,
-        uint256 amount
-    ) internal returns (uint256) {
-        INonStandardERC20 _token = INonStandardERC20(tokenAddress);
-        uint256 balanceBefore = IERC20(tokenAddress).balanceOf(address(this));
-        _token.transferFrom(from, address(this), amount);
-
-        bool success;
-        assembly {
-            switch returndatasize()
-                case 0 {
-                    // This is a non-standard ERC-20
-                    success := not(0) // set success to true
-                }
-                case 32 {
-                    // This is a compliant ERC-20
-                    returndatacopy(0, 0, 32)
-                    success := mload(0) // Set `success = returndata` of external call
-                }
-                default {
-                    // This is an excessively non-compliant ERC-20, revert.
-                    revert(0, 0)
-                }
-        }
-        require(success, "TOKEN_TRANSFER_IN_FAILED");
-
-        // Calculate the amount that was actually transferred
-        uint256 balanceAfter = IERC20(tokenAddress).balanceOf(address(this));
-        require(balanceAfter >= balanceBefore, "TOKEN_TRANSFER_IN_OVERFLOW");
-        return balanceAfter.sub(balanceBefore); // underflow already checked above, just subtract
+        // Position of the value in the `values` array, plus 1 because index 0
+        // means a value is not in the set.
+        mapping (bytes32 => uint256) _indexes;
     }
 
     /**
-     * @dev Similar to EIP20 transfer, except it handles a False success from `transfer` and returns an explanatory
-     *      error code rather than reverting. If caller has not called checked protocol's balance, this may revert due to
-     *      insufficient cash held in this contract. If caller has checked protocol's balance prior to this call, and verified
-     *      it is >= amount, this should not revert in normal conditions.
+     * @dev Add a value to a set. O(1).
      *
-     *      Note: This wrapper safely handles non-standard ERC-20 tokens that do not return a value.
-     *            See here: https://medium.com/coinmonks/missing-return-value-bug-at-least-130-tokens-affected-d67bf08521ca
+     * Returns true if the value was added to the set, that is if it was not
+     * already present.
      */
-    function doTransferOut(
-        address tokenAddress,
-        address to,
-        uint256 amount
-    ) internal {
-        INonStandardERC20 _token = INonStandardERC20(tokenAddress);
-        _token.transfer(to, amount);
-
-        bool success;
-        assembly {
-            switch returndatasize()
-                case 0 {
-                    // This is a non-standard ERC-20
-                    success := not(0) // set success to true
-                }
-                case 32 {
-                    // This is a complaint ERC-20
-                    returndatacopy(0, 0, 32)
-                    success := mload(0) // Set `success = returndata` of external call
-                }
-                default {
-                    // This is an excessively non-compliant ERC-20, revert.
-                    revert(0, 0)
-                }
+    function _add(Set storage set, bytes32 value) private returns (bool) {
+        if (!_contains(set, value)) {
+            set._values.push(value);
+            // The value is stored at length-1, but we add 1 to all indexes
+            // and use 0 as a sentinel value
+            set._indexes[value] = set._values.length;
+            return true;
+        } else {
+            return false;
         }
-        require(success, "TOKEN_TRANSFER_OUT_FAILED");
     }
-    
-    modifier onlyOwner(){
-        require(msg.sender == owner);
-        _;
+
+    /**
+     * @dev Removes a value from a set. O(1).
+     *
+     * Returns true if the value was removed from the set, that is if it was
+     * present.
+     */
+    function _remove(Set storage set, bytes32 value) private returns (bool) {
+        // We read and store the value's index to prevent multiple reads from the same storage slot
+        uint256 valueIndex = set._indexes[value];
+
+        if (valueIndex != 0) { // Equivalent to contains(set, value)
+            // To delete an element from the _values array in O(1), we swap the element to delete with the last one in
+            // the array, and then remove the last element (sometimes called as 'swap and pop').
+            // This modifies the order of the array, as noted in {at}.
+
+            uint256 toDeleteIndex = valueIndex - 1;
+            uint256 lastIndex = set._values.length - 1;
+
+            // When the value to delete is the last one, the swap operation is unnecessary. However, since this occurs
+            // so rarely, we still do the swap anyway to avoid the gas cost of adding an 'if' statement.
+
+            bytes32 lastvalue = set._values[lastIndex];
+
+            // Move the last value to the index where the value to delete is
+            set._values[toDeleteIndex] = lastvalue;
+            // Update the index for the moved value
+            set._indexes[lastvalue] = toDeleteIndex + 1; // All indexes are 1-based
+
+            // Delete the slot where the moved value was stored
+            set._values.pop();
+
+            // Delete the index for the deleted slot
+            delete set._indexes[value];
+
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * @dev Returns true if the value is in the set. O(1).
+     */
+    function _contains(Set storage set, bytes32 value) private view returns (bool) {
+        return set._indexes[value] != 0;
+    }
+
+    /**
+     * @dev Returns the number of values on the set. O(1).
+     */
+    function _length(Set storage set) private view returns (uint256) {
+        return set._values.length;
+    }
+
+   /**
+    * @dev Returns the value stored at position `index` in the set. O(1).
+    *
+    * Note that there are no guarantees on the ordering of values inside the
+    * array, and it may change when more values are added or removed.
+    *
+    * Requirements:
+    *
+    * - `index` must be strictly less than {length}.
+    */
+    function _at(Set storage set, uint256 index) private view returns (bytes32) {
+        require(set._values.length > index, "EnumerableSet: index out of bounds");
+        return set._values[index];
+    }
+
+    // AddressSet
+
+    struct AddressSet {
+        Set _inner;
+    }
+
+    /**
+     * @dev Add a value to a set. O(1).
+     *
+     * Returns true if the value was added to the set, that is if it was not
+     * already present.
+     */
+    function add(AddressSet storage set, address value) internal returns (bool) {
+        return _add(set._inner, bytes32(uint256(value)));
+    }
+
+    /**
+     * @dev Removes a value from a set. O(1).
+     *
+     * Returns true if the value was removed from the set, that is if it was
+     * present.
+     */
+    function remove(AddressSet storage set, address value) internal returns (bool) {
+        return _remove(set._inner, bytes32(uint256(value)));
+    }
+
+    /**
+     * @dev Returns true if the value is in the set. O(1).
+     */
+    function contains(AddressSet storage set, address value) internal view returns (bool) {
+        return _contains(set._inner, bytes32(uint256(value)));
+    }
+
+    /**
+     * @dev Returns the number of values in the set. O(1).
+     */
+    function length(AddressSet storage set) internal view returns (uint256) {
+        return _length(set._inner);
+    }
+
+   /**
+    * @dev Returns the value stored at position `index` in the set. O(1).
+    *
+    * Note that there are no guarantees on the ordering of values inside the
+    * array, and it may change when more values are added or removed.
+    *
+    * Requirements:
+    *
+    * - `index` must be strictly less than {length}.
+    */
+    function at(AddressSet storage set, uint256 index) internal view returns (address) {
+        return address(uint256(_at(set._inner, index)));
+    }
+
+
+    // UintSet
+
+    struct UintSet {
+        Set _inner;
+    }
+
+    /**
+     * @dev Add a value to a set. O(1).
+     *
+     * Returns true if the value was added to the set, that is if it was not
+     * already present.
+     */
+    function add(UintSet storage set, uint256 value) internal returns (bool) {
+        return _add(set._inner, bytes32(value));
+    }
+
+    /**
+     * @dev Removes a value from a set. O(1).
+     *
+     * Returns true if the value was removed from the set, that is if it was
+     * present.
+     */
+    function remove(UintSet storage set, uint256 value) internal returns (bool) {
+        return _remove(set._inner, bytes32(value));
+    }
+
+    /**
+     * @dev Returns true if the value is in the set. O(1).
+     */
+    function contains(UintSet storage set, uint256 value) internal view returns (bool) {
+        return _contains(set._inner, bytes32(value));
+    }
+
+    /**
+     * @dev Returns the number of values on the set. O(1).
+     */
+    function length(UintSet storage set) internal view returns (uint256) {
+        return _length(set._inner);
+    }
+
+   /**
+    * @dev Returns the value stored at position `index` in the set. O(1).
+    *
+    * Note that there are no guarantees on the ordering of values inside the
+    * array, and it may change when more values are added or removed.
+    *
+    * Requirements:
+    *
+    * - `index` must be strictly less than {length}.
+    */
+    function at(UintSet storage set, uint256 index) internal view returns (uint256) {
+        return uint256(_at(set._inner, index));
     }
 }
 
+import "./Crowdsale.sol";
 
 contract LaunchpadFactory is Ownable{
+    
     Crowdsale[] public crowdsaleContract;
     
+    using EnumerableSet for EnumerableSet.AddressSet;
+    EnumerableSet.AddressSet private crowdsales;
     
     uint256 public Launchpadcount;
 
     mapping(uint256 => mapping(address => Crowdsale)) public crowdsaleContracts;
 
-    event CrowdsaleEvent(uint256 count, address manager, Crowdsale crowdsaleContract);
+    event CrowdsaleLaunched(uint256 count, address manager, Crowdsale crowdsaleContract);
     
     function _preValidateAddress(address _addr)
         internal pure
@@ -425,18 +338,41 @@ contract LaunchpadFactory is Ownable{
      * All invested amount would be accumulated in the Crowdsale Contract
      */
     function launchCrowdsale (IERC20 _tokenAddress, uint256 _amountAllocation,address _owner,uint256 _rate, uint256 _startTime, uint256 _endTime, uint256 _cliffDurationInSecs) public returns (address){
+        _preValidateAddress(_tokenAddress);
         require(_startTime >= block.timestamp, 'START'); // ideally at least 24 hours more to give investors time
         require(_amountAllocation > 0, 'Allocate some amount to start Crowdsale');
         require(address(_tokenAddress) != address(0), 'Invalid Token address');
         require(_rate > 0, 'Rate cannot be Zero'); 
 
-        TransferHelper.safeTransferFrom(address(_tokenAddress), address(msg.sender), address(this), params.requiredAmount);
-        Crowdsale newCrowdsale = new Crowdsale();
-        TransferHelper.safeApprove(address(_rewardToken), address(newFarm), params.requiredAmount);
+        TransferHelper.safeTransferFrom(address(_tokenAddress), address(msg.sender), address(this), _amountAllocation);
+        Crowdsale newCrowdsale = new Crowdsale(_owner);
+        TransferHelper.safeApprove(address(_tokenAddress), address(newCrowdsale), _amountAllocation);
         newCrowdsale.init(_tokenAddress, _amountAllocation,_owner,_rate, _startTime,_endTime, _cliffDurationInSecs);
         
-        factory.registerCrowdsale(address(newCrowdsale));
+        registerCrowdsale(address(newCrowdsale));
+        emit CrowdsaleLaunched(Launchpadcount, msg.sender, newlaunchpad);
         return (address(newCrowdsale));
+    }
+    
+    /**
+     * @notice called by a registered FarmGenerator upon Farm creation
+     */
+    function registerCrowdsale (address _crowdsaleAddress) private {
+        crowdsales.add(_crowdsaleAddress);
+    }
+    
+    /**
+     * @notice Gets the address of a registered Crowdsales at specifiex index
+     */
+    function crowdsaleAtIndex(uint256 _index) external view returns (address) {
+        return crowdsales.at(_index);
+    }
+    
+    /**
+     * @notice The length of all Crowdsales on the platform
+     */
+    function crowdsalesLength() external view returns (uint256) {
+        return crowdsales.length();
     }
     
     
