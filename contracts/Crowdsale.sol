@@ -195,63 +195,78 @@ abstract contract ReentrancyGuard {
     }
 }
 
-
 contract Crowdsale is ReentrancyGuard  {
     using SafeMath for uint256;
 
     address public owner;
     
     uint256 public rate;
-    bool public crowdsaleOver;
-    IERC20 public token;
+    
+    bool public crowdsaleActive;
+    
+    IERC20 public token;    //Token available for purchasing in this Crowdsale
+    
+    uint256 public remainingTokenForSaleInCrowdsale ;
+    
     address public Launchpad;
     
     IERC20 private usdc = IERC20(0xb7a4F3E9097C08dA09517b5aB877F7a917224ede);
     IERC20 private dai = IERC20(0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa);
     IERC20 private usdt = IERC20(0x07de306FF27a2B630B1141956844eB1552B956B5);
     
-    /// @notice information stuct on each user than stakes LP tokens.
-    struct UserInfo {
-        uint256 amount;     // How many tokens the user has invested.
-        uint256 lastInvestedTime; // Timestamp when user invested last time.
-    }
-    
-    /// @notice all the settings for this farm in one struct
-    struct CrowdsaleInfo {
-        IERC20 token;
-        uint256 startTime;
-        uint256 endTime;
-        uint256 cliffDurationInSecs;
-    }
-    
-    /// @notice event emitted when a vesting schedule is created
-    event ScheduleCreated(address indexed _beneficiary);
+     /**
+       * Event for Tokens purchase logging
+       * @param investor who invested & got the tokens
+       * @param investedAmount of stableCoin paid for purchase
+       * @param tokenPurchased amount
+       * @param stableCoin address used to invest
+       */
+        event TokenPurchase(
+            address indexed investor,
+            uint256 investedAmount,
+            uint256 indexed tokenPurchased,
+            IERC20 indexed stableCoin
+        );
+        
+    /// @notice event emitted when a vesting schedule is updated
+    event ScheduleUpdated(address indexed _investor);
 
     /// @notice event emitted when a successful drawn down of vesting tokens is made
-    event DrawDown(address indexed _beneficiary, uint256 indexed _amount);
+    event DrawDown(address indexed _investor, uint256 indexed _amount);
 
     /// @notice start of vesting period as a timestamp
-    uint256 public start;
+    uint256 public vestingStart;
+    
+     /// @notice start of crowdsale as a timestamp
+    uint256 public crowdsaleStart;
+    
+     /// @notice end of crowdsale as a timestamp
+    uint256 public crowdsaleEnd;
 
     /// @notice end of vesting period as a timestamp
-    uint256 public end;
+    uint256 public vestingEnd;
+    
+    /// @notice Number of Tokens Allocated for crowdsale
+    uint256 public crowdsaleTokenAllocated;
 
     /// @notice cliff duration in seconds
     uint256 public cliffDuration;
 
-    /// @notice amount vested for a beneficiary. Note beneficiary address can not be reused
+    /// @notice amount vested for a investor. 
     mapping(address => uint256) public vestedAmount;
 
-    /// @notice cumulative total of tokens drawn down (and transferred from the deposit account) per beneficiary
+    /// @notice cumulative total of tokens drawn down (and transferred from the deposit account) per investor
     mapping(address => uint256) public totalDrawn;
 
-    /// @notice last drawn down time (seconds) per beneficiary
+    /// @notice last drawn down time (seconds) per investor
     mapping(address => uint256) public lastDrawnAt;
     
-    CrowdsaleInfo public crowdsaleInfo;
-
+    modifier onlyOwner(){
+        require(msg.sender == owner);
+        _;
+    }
+    
     constructor(address _owner,address _launchpad) public {
-        crowdsaleOver = false;
         Launchpad = _launchpad;
         owner = _owner;
     }
@@ -259,133 +274,138 @@ contract Crowdsale is ReentrancyGuard  {
     /**
      * @notice initialize the Crowdsale contract. This is called only once upon Crowdsale creation and the Launchpad ensures the Crowdsale has the correct paramaters
      */
-    function init (IERC20 _tokenAddress,address _owner, uint256 _amount, uint256 _rate, uint256 _startTime, uint256 _endTime,uint256 _cliffDurationInSecs) public {
+    function init (IERC20 _tokenAddress,uint256 _amount, uint256 _rate,uint256 _crowdsaleStartTime,uint256 _crowdsaleEndTime, uint256 _vestingStartTime, uint256 _vestingEndTime,uint256 _cliffDurationInSecs) public {
         require(msg.sender == address(Launchpad), 'FORBIDDEN');
-        
         TransferHelper.safeTransferFrom(address(_tokenAddress), msg.sender, address(this), _amount);
-        crowdsaleInfo.token = _tokenAddress;
-        
-        crowdsaleInfo.startTime = _startTime;
-        crowdsaleInfo.endTime = _endTime;
-        
-        crowdsaleInfo.cliffDurationInSecs = _cliffDurationInSecs;
+        token = _tokenAddress;
+        rate = _rate;
+        crowdsaleStart = _crowdsaleStartTime;
+        crowdsaleEnd = _crowdsaleEndTime;
+        vestingStart = _vestingStartTime;
+        vestingEnd = _vestingEndTime;
+        crowdsaleTokenAllocated = _amount;
+        remainingTokenForSaleInCrowdsale = _amount;
+        cliffDuration = _cliffDurationInSecs;
     }
-
-
-    modifier iscrowdsaleOver() {
-        require(crowdsaleOver == true, "Crowdsale is ongoing");
+    
+    modifier isCrowdsaleOver(){
+        require(_getNow() > crowdsaleEnd && crowdsaleEnd != 0,"Crowdsale Not Ended Yet");
         _;
     }
 
-    function endCrowdsale() external onlyOwner {
-        crowdsaleOver = true;
+    function endCrowdsale(uint256 _vestingStartTime,uint256 _vestingEndTime,uint256 _cliffDurationInSecs) external onlyOwner {
+        require(crowdsaleEnd == 0,"Crowdsale would end automatically after endTime");
+        crowdsaleEnd = _getNow();
+        require(_vestingStartTime >= crowdsaleEnd, 'Vesting Start time should be greater or equal to Crowdsale EndTime');
+        require(_vestingEndTime > _vestingStartTime.add(_cliffDurationInSecs) || _vestingEndTime == 0, 'Vesting End Time can either be later than cliffPeriod or 0');  //_vestingEndTime = 0 means tokens would be distributed immediately after crowdsale ends
+
+        vestingStart = _vestingStartTime;
+        vestingEnd = _vestingEndTime;
+        cliffDuration = _cliffDurationInSecs;
+        withdrawFunds(token,remainingTokenForSaleInCrowdsale);
     }
     
     function buyTokenWithStableCoin(IERC20 _stableCoin, uint256 amount)
-        external
-    {
-        require(crowdsaleOver == false, "Crowdsale has ended,invest in other crowdsale");
+        external 
+    {   
+        require(_getNow() >= crowdsaleStart,"Crowdsale isn't active");
+        if(crowdsaleEnd != 0){
+            require(_getNow() < crowdsaleEnd, "Crowdsale Ended");
+        }
         
-        uint256 vestingAmount;
+        uint256 tokenPurchased;
         
         if (_stableCoin == usdt) {
-            vestingAmount = amount.mul(1e12).mul(rate).div(1e18);
+            tokenPurchased = amount.mul(1e12).mul(rate).div(1e18);
             doTransferIn(address(_stableCoin), msg.sender, amount);
         } else if (_stableCoin == usdc) {
-            vestingAmount = amount.mul(1e12).mul(rate).div(1e18);
+            tokenPurchased = amount.mul(1e12).mul(rate).div(1e18);
             _stableCoin.transferFrom(msg.sender, address(this), amount);
         } else if (_stableCoin == dai) {
-            vestingAmount = amount.mul(rate).div(1e18);
+            tokenPurchased = amount.mul(rate).div(1e18);
             _stableCoin.transferFrom(msg.sender, address(this), amount);
         }
-        return _createVestingSchedule(msg.sender, vestingAmount);
+        _updateVestingSchedule(msg.sender, tokenPurchased);
+        remainingTokenForSaleInCrowdsale= remainingTokenForSaleInCrowdsale.sub(remainingTokenForSaleInCrowdsale);
+        emit TokenPurchase(msg.sender,amount,tokenPurchased,_stableCoin);
     }
     
-    function _createVestingSchedule(address _beneficiary, uint256 _amount) internal returns (bool) {
-        require(_beneficiary != address(0), "Beneficiary cannot be empty");
+    function _updateVestingSchedule(address _investor, uint256 _amount) internal returns (bool) {
+        require(_investor != address(0), "Beneficiary cannot be empty");
         require(_amount > 0, "Amount cannot be empty");
 
-        // Ensure one per address
-        require(vestedAmount[_beneficiary] == 0, "Schedule already in flight");
+        vestedAmount[_investor] =  vestedAmount[_investor].add(_amount);
 
-        vestedAmount[_beneficiary] = _amount;
-
-        emit ScheduleCreated(_beneficiary);
+        emit ScheduleUpdated(_investor);
 
         return true;
     }
+    
+    function _availableDrawDownAmount(address _investor) internal view returns (uint256 _amount) {
 
-    function claim() external iscrowdsaleOver {
-        // it checks for user msg.sender claimable amount and transfer them to msg.sender
-        require(claimable[msg.sender] > 0, "NO tokens left to be claim");
-        token.transfer(msg.sender, claimable[msg.sender]);
-        claimable[msg.sender] = 0;
+        // Cliff Period
+        if (_getNow() <= vestingStart.add(cliffDuration)) {
+            // the cliff period has not ended, no tokens to draw down
+            return 0;
+        }
+
+        // Schedule complete
+        if (_getNow() > vestingEnd) {
+            return vestedAmount[_investor].sub(totalDrawn[_investor]);
+        }
+
+        // Schedule is active
+
+        // Work out when the last invocation was
+        uint256 timeLastDrawnOrStart = lastDrawnAt[_investor] == 0 ? vestingStart : lastDrawnAt[_investor];
+
+        // Find out how much time has past since last invocation
+        uint256 timePassedSinceLastInvocation = _getNow().sub(timeLastDrawnOrStart);
+
+        // Work out how many due tokens - time passed * rate per second
+        uint256 drawDownRate = vestedAmount[_investor].div(vestingEnd.sub(vestingStart));
+        uint256 amount = timePassedSinceLastInvocation.mul(drawDownRate);
+
+        return amount;
     }
+
     
     /**
      * @notice Draws down any vested tokens due
-     * @dev Must be called directly by the beneficiary assigned the tokens in the schedule
+     * @dev Must be called directly by the investor assigned the tokens in the schedule
      */
-    function drawDown() nonReentrant external returns (bool) {
+    function drawDown() nonReentrant isCrowdsaleOver external returns (bool) {
         return _drawDown(msg.sender);
     }
     
-    function _drawDown(address _beneficiary) internal returns (bool) {
-        require(vestedAmount[_beneficiary] > 0, "There is no schedule currently in flight");
+    function _drawDown(address _investor) internal returns (bool) {
+        require(vestedAmount[_investor] > 0, "There is no schedule currently in flight");
 
-        uint256 amount = _availableDrawDownAmount(_beneficiary);
+        uint256 amount = _availableDrawDownAmount(_investor);
         require(amount > 0, "No allowance left to withdraw");
 
         // Update last drawn to now
-        lastDrawnAt[_beneficiary] = _getNow();
+        lastDrawnAt[_investor] = _getNow();
 
         // Increase total drawn amount
-        totalDrawn[_beneficiary] = totalDrawn[_beneficiary].add(amount);
+        totalDrawn[_investor] = totalDrawn[_investor].add(amount);
 
         // Safety measure - this should never trigger
         require(
-            totalDrawn[_beneficiary] <= vestedAmount[_beneficiary],
+            totalDrawn[_investor] <= vestedAmount[_investor],
             "Safety Mechanism - Drawn exceeded Amount Vested"
         );
 
-        // Issue tokens to beneficiary
-        require(token.transfer(_beneficiary, amount), "Unable to transfer tokens");
+        // Issue tokens to investor
+        require(token.transfer(_investor, amount), "Unable to transfer tokens");
 
-        emit DrawDown(_beneficiary, amount);
+        emit DrawDown(_investor, amount);
 
         return true;
     }
 
     function _getNow() internal view returns (uint256) {
         return block.timestamp;
-    }
-
-    function _availableDrawDownAmount(address _beneficiary) internal view returns (uint256 _amount) {
-
-        // Cliff Period
-        if (_getNow() <= start.add(cliffDuration)) {
-            // the cliff period has not ended, no tokens to draw down
-            return 0;
-        }
-
-        // Schedule complete
-        if (_getNow() > end) {
-            return vestedAmount[_beneficiary].sub(totalDrawn[_beneficiary]);
-        }
-
-        // Schedule is active
-
-        // Work out when the last invocation was
-        uint256 timeLastDrawnOrStart = lastDrawnAt[_beneficiary] == 0 ? start : lastDrawnAt[_beneficiary];
-
-        // Find out how much time has past since last invocation
-        uint256 timePassedSinceLastInvocation = _getNow().sub(timeLastDrawnOrStart);
-
-        // Work out how many due tokens - time passed * rate per second
-        uint256 drawDownRate = vestedAmount[_beneficiary].div(end.sub(start));
-        uint256 amount = timePassedSinceLastInvocation.mul(drawDownRate);
-
-        return amount;
     }
 
     function getContractTokenBalance(IERC20 _token)
@@ -395,20 +415,32 @@ contract Crowdsale is ReentrancyGuard  {
     {
         return _token.balanceOf(address(this));
     }
+    
+    /**
+     * @notice Balance remaining in vesting schedule
+     * @param _investor beneficiary of the vested tokens
+     * @return _remainingBalance tokens still due (and currently locked) from vesting schedule
+    */
+    function remainingBalance(address _investor) external view returns (uint256) {
+        return vestedAmount[_investor].sub(totalDrawn[_investor]);
+    }
 
-    function fundsWithdrawal(IERC20 _token, uint256 value) external onlyOwner {
+    function withdrawFunds(IERC20 _token, uint256 amount) public isCrowdsaleOver onlyOwner {
         require(
-            getContractTokenBalance(_token) >= value,
+            getContractTokenBalance(_token) >= amount,
             "the contract doesnt have tokens"
         );
         if (_token == usdt) {
-            return doTransferOut(address(_token), msg.sender, value);
+            return doTransferOut(address(_token), msg.sender, amount);
         }
 
-        _token.transfer(msg.sender, value);
+        _token.transfer(msg.sender, amount);
     }
     
-
+    /**
+     * @dev Performs a transfer in, reverting upon failure. Returns the amount actually transferred to the protocol, in case of a fee.
+     *  This may revert due to insufficient balance or insufficient allowance.
+     */
     function doTransferIn(
         address tokenAddress,
         address from,
@@ -444,13 +476,9 @@ contract Crowdsale is ReentrancyGuard  {
     }
 
     /**
-     * @dev Similar to EIP20 transfer, except it handles a False success from `transfer` and returns an explanatory
-     *      error code rather than reverting. If caller has not called checked protocol's balance, this may revert due to
-     *      insufficient cash held in this contract. If caller has checked protocol's balance prior to this call, and verified
-     *      it is >= amount, this should not revert in normal conditions.
-     *
-     *      Note: This wrapper safely handles non-standard ERC-20 tokens that do not return a value.
-     *            See here: https://medium.com/coinmonks/missing-return-value-bug-at-least-130-tokens-affected-d67bf08521ca
+     * @dev Performs a transfer out, ideally returning an explanatory error code upon failure tather than reverting.
+     *  If caller has not called checked protocol's balance, may revert due to insufficient cash held in the contract.
+     *  If caller has checked protocol's balance, and verified it is >= amount, this should not revert in normal conditions.
      */
     function doTransferOut(
         address tokenAddress,
@@ -479,9 +507,5 @@ contract Crowdsale is ReentrancyGuard  {
         }
         require(success, "TOKEN_TRANSFER_OUT_FAILED");
     }
-    
-    modifier onlyOwner(){
-        require(msg.sender == owner);
-        _;
-    }
+
 }
