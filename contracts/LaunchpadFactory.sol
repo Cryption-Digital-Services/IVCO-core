@@ -9,21 +9,16 @@ contract LaunchpadFactory {
     
     /// @notice all the information for this crowdsale in one struct
     struct CrowdsaleInfo {
+        address crowdsaleAddress;
         IERC20 tokenAddress;
-        uint256 tokenAllocated;
-        uint256 crowdsaleStartTime;
-        uint256 crowdsaleEndTime;
         address owner;
-        uint256 vestingStartTime;
-        uint256 vestingEndTime;
-        uint256 cliffDuration;
     }
     
     CrowdsaleInfo[] public crowdsales;  //creating a variable requests of type array which will hold value in format that of Request 
     
     uint256 public crowdsaleIndex;
 
-    event CrowdsaleLaunched(uint256 indexed crowdsaleIndex, address indexed crowdsaleOwner, IERC20 indexed token,address crowdsaleAddress);
+    event CrowdsaleLaunched(uint256 indexed crowdsaleIndex,address indexed crowdsaleAddress,IERC20 token, uint256 indexed crowdsaleStartTime);
     
     function _preValidateAddress(IERC20 _addr)
         internal pure
@@ -59,26 +54,14 @@ contract LaunchpadFactory {
         newCrowdsale.init(_tokenAddress, _amountAllocation,_rate,_crowdsaleStartTime,_crowdsaleEndTime, _vestingStartTime,_vestingEndTime, _cliffDurationInSecs);
                         
        CrowdsaleInfo memory newCrowdsaleInfo=CrowdsaleInfo({     //creating a variable newCrowdsaleInfo which will hold value in format that of CrowdsaleInfo 
+            crowdsaleAddress : address(newCrowdsale),   //setting the value of keys as being passed by crowdsale deployer during the function call
             tokenAddress:_tokenAddress,
-            tokenAllocated:_amountAllocation,
-            crowdsaleStartTime:_crowdsaleStartTime,        //setting the value of keys as being passed by crowdsale deployer during the function call
-            crowdsaleEndTime:_crowdsaleEndTime,
-            owner:_owner,
-            vestingStartTime:_vestingStartTime,
-            vestingEndTime:_vestingEndTime,
-            cliffDuration:_cliffDurationInSecs
+            owner:_owner
         });
         crowdsales.push(newCrowdsaleInfo);  //stacking up every crowdsale info ever made to crowdsales variable
        
-        emit CrowdsaleLaunched(crowdsaleIndex, _owner, _tokenAddress,address(newCrowdsale));
+        emit CrowdsaleLaunched(crowdsaleIndex,address(newCrowdsale),_tokenAddress,_crowdsaleStartTime);
         crowdsaleIndex++;
-    }
-    
-    /**
-     * @notice The length of all Crowdsales launched on the platform
-     */
-    function crowdsalesLength() external view returns (uint256) {
-        return crowdsales.length;
     }
     
     
