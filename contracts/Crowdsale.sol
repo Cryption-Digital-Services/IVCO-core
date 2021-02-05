@@ -258,9 +258,6 @@ contract Crowdsale is ReentrancyGuard  {
         IERC20 indexed stableCoin,
         uint256 tokenRemaining
     );
-        
-    /// @notice event emitted when a vesting schedule is updated
-    event ScheduleUpdated(address indexed _investor);
 
     /// @notice event emitted when a successful drawn down of vesting tokens is made
     event DrawDown(address indexed _investor, uint256 _amount,uint256 indexed drawnTime);
