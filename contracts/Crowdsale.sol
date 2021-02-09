@@ -202,17 +202,23 @@ contract Crowdsale is ReentrancyGuard  {
     
     address public owner;
     
-    uint256 public rate;
+    //@notice the amount of token investor will recieve against 1 stableCoin
+    uint256 public rate;    
     
-    IERC20 public token;    //TokenAddress available for purchase in this Crowdsale
+    ///@notice TokenAddress available for purchase in this Crowdsale
+    IERC20 public token;    
+    
+    /// @notice decimal of token that is available for purchase in this Crowdsale
+    uint256 public tokenDecimal;
     
     uint256 public tokenRemainingForSale;
     
-    address public LaunchpadFactory;    //address of LaunchpadFactory Contract
+    /// @notice of LaunchpadFactory Contract
+    address public LaunchpadFactory;    
     
-    IERC20 private usdc = IERC20(0xb7a4F3E9097C08dA09517b5aB877F7a917224ede);
-    IERC20 private dai = IERC20(0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa);
-    IERC20 private usdt = IERC20(0x07de306FF27a2B630B1141956844eB1552B956B5);
+    IERC20 private usdc = IERC20(0xd306B598B6ba5696f5A628988F93cC981983103d);   //0xb7a4F3E9097C08dA09517b5aB877F7a917224ede mainnet addresses
+    IERC20 private dai = IERC20(0x34737f90FD62BC9B897760Cd16F3dFa4418096E1);    //0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa
+    IERC20 private usdt = IERC20(0xcc187aA982e3001D86bc954ED1a817D97500EC2C);   //0x07de306FF27a2B630B1141956844eB1552B956B5 
 
     /// @notice start of vesting period as a timestamp
     uint256 public vestingStart;
@@ -231,8 +237,6 @@ contract Crowdsale is ReentrancyGuard  {
 
     /// @notice cliff duration in seconds
     uint256 public cliffDuration;
-    
-    uint256 public tokenMultiplier;
 
     /// @notice amount vested for a investor. 
     mapping(address => uint256) public vestedAmount;
@@ -293,16 +297,17 @@ contract Crowdsale is ReentrancyGuard  {
         crowdsaleTokenAllocated = _amount;
         tokenRemainingForSale = _amount;
         cliffDuration = _cliffDurationInSecs;
-        tokenMultiplier = (10**uint256(token.decimals()));
+        tokenDecimal = token.decimals();
     }
     
     modifier isCrowdsaleOver(){
-        require(_getNow() > crowdsaleEndTime && crowdsaleEndTime != 0,"Crowdsale Not Ended Yet");
+        require(_getNow() >= crowdsaleEndTime && crowdsaleEndTime != 0,"Crowdsale Not Ended Yet");
         _;
     }
     
     function buyTokenWithStableCoin(IERC20 _stableCoin, uint256 amount) external {   
         require(_getNow() >= crowdsaleStartTime,"Crowdsale isn't started yet");
+        
         if(crowdsaleEndTime != 0){
             require(_getNow() < crowdsaleEndTime, "Crowdsale Ended");
         }
@@ -310,14 +315,18 @@ contract Crowdsale is ReentrancyGuard  {
         uint256 tokenPurchased;
         
         if (_stableCoin == usdt) {
-            tokenPurchased = amount.mul(1e12).mul(rate).div(tokenMultiplier);
+            tokenPurchased = amount.mul(1e12).mul(rate);
             doTransferIn(address(_stableCoin), msg.sender, amount);
         } else if (_stableCoin == usdc) {
-            tokenPurchased = amount.mul(1e12).mul(rate).div(tokenMultiplier);
+            tokenPurchased = amount.mul(1e12).mul(rate);
             _stableCoin.transferFrom(msg.sender, address(this), amount);
         } else if (_stableCoin == dai) {
-            tokenPurchased = amount.mul(rate).div(tokenMultiplier);
+            tokenPurchased = amount.mul(rate);
             _stableCoin.transferFrom(msg.sender, address(this), amount);
+        }
+        
+        if(tokenDecimal != 18){ 
+            tokenPurchased = tokenDecimal > 18 ? tokenPurchased.mul(10**(tokenDecimal-18)) : tokenPurchased.div(10**(18-tokenDecimal)) ;
         }
         _updateVestingSchedule(msg.sender, tokenPurchased);
         tokenRemainingForSale = tokenRemainingForSale.sub(tokenPurchased);
@@ -332,6 +341,29 @@ contract Crowdsale is ReentrancyGuard  {
         vestedAmount[_investor] =  vestedAmount[_investor].add(_amount);
     }
     
+    /**
+     * @notice Vesting schedule and associated data for an investor
+     * @return _amount
+     * @return _totalDrawn
+     * @return _lastDrawnAt
+     * @return _remainingBalance
+     */
+    function vestingScheduleForBeneficiary(address _investor)
+    external view
+    returns (uint256 _amount, uint256 _totalDrawn, uint256 _lastDrawnAt, uint256 _remainingBalance) {
+        return (
+        vestedAmount[_investor],
+        totalDrawn[_investor],
+        lastDrawnAt[_investor],
+        vestedAmount[_investor].sub(totalDrawn[_investor])
+        );
+    }
+
+     /**
+     * @notice Draw down amount currently available (based on the block timestamp)
+     * @param _investor beneficiary of the vested tokens
+     * @return _amount tokens due from vesting schedule
+     */
     function availableDrawDownAmount(address _investor) internal view returns (uint256 _amount) {
 
         // Cliff Period
@@ -405,7 +437,7 @@ contract Crowdsale is ReentrancyGuard  {
      * @param _investor beneficiary of the vested tokens
      * @return _remainingBalance tokens still due (and currently locked) from vesting schedule
     */
-    function remainingBalance(address _investor) external view returns (uint256) {
+    function remainingBalance(address _investor) public view returns (uint256) {
         return vestedAmount[_investor].sub(totalDrawn[_investor]);
     }
     
@@ -413,12 +445,14 @@ contract Crowdsale is ReentrancyGuard  {
         require(crowdsaleEndTime == 0,"Crowdsale would end automatically after endTime");
         crowdsaleEndTime = _getNow();
         require(_vestingStartTime >= crowdsaleEndTime, 'Vesting Start time should be greater or equal to Crowdsale EndTime');
-        require(_vestingEndTime > _vestingStartTime.add(_cliffDurationInSecs) || _vestingEndTime == 0, 'Vesting End Time can either be later than cliffPeriod or 0');  //_vestingEndTime = 0 means tokens would be distributed immediately after crowdsale ends
+        require(_vestingEndTime > _vestingStartTime.add(_cliffDurationInSecs), 'Vesting End Time should be after the cliffPeriod');
 
         vestingStart = _vestingStartTime;
         vestingEnd = _vestingEndTime;
         cliffDuration = _cliffDurationInSecs;
-        withdrawFunds(token,tokenRemainingForSale);  //when crowdsaleEnds withdraw unsold tokens to the owner
+        if(tokenRemainingForSale!=0){
+            withdrawFunds(token,tokenRemainingForSale);  //when crowdsaleEnds withdraw unsold tokens to the owner
+        }
         emit CrowdsaleEndedManually(crowdsaleEndTime);
     }
     

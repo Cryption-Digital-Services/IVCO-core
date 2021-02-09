@@ -42,7 +42,7 @@ contract LaunchpadFactory {
         }
         
         require(_vestingStartTime >= _crowdsaleEndTime, 'Vesting Start time should be greater or equal to Crowdsale EndTime');
-        require(_vestingEndTime > _vestingStartTime.add(_cliffDurationInSecs) || _vestingEndTime == 0, 'Vesting End Time can either be later than cliffPeriod or 0');  //_vestingEndTime = 0 means tokens would be distributed immediately after crowdsale ends
+        require(_vestingEndTime > _vestingStartTime.add(_cliffDurationInSecs), 'Vesting End Time should be after the cliffPeriod');
 
         require(_amountAllocation > 0, 'Allocate some amount to start Crowdsale');
         require(address(_tokenAddress) != address(0), 'Invalid Token address');
