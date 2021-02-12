@@ -263,14 +263,16 @@ contract TestToken is Context, IERC20 {
 
     uint256 private _totalSupply;
 
-    string private _name = "Test Token";
-    string private _symbol = "TEST";
+    string private _name ;
+    string private _symbol ;
     uint8 private _decimals;
 
-    constructor (uint8 decimals_) {
+    constructor (string memory name_,string memory symbol_,uint8 decimals_) public{
         _decimals = decimals_;
-        _balances[msg.sender] = 100000000000000000000000000;
-        _totalSupply = 100000000000000000000000000;
+        _name = name_;
+        _symbol = symbol_;
+        _balances[msg.sender] = 100000000*(10**uint256(_decimals));
+        _totalSupply = 100000000*(10**uint256(_decimals));
     }
 
     /**

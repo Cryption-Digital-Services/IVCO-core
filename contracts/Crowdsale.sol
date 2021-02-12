@@ -306,7 +306,7 @@ contract Crowdsale is ReentrancyGuard  {
     }
     
     function buyTokenWithStableCoin(IERC20 _stableCoin, uint256 amount) external {   
-        require(_getNow() >= crowdsaleStartTime,"Crowdsale isn't started yet");
+        require(_getNow() >= crowdsaleStartTime,"Crowdsale isnt started yet");
         
         if(crowdsaleEndTime != 0){
             require(_getNow() < crowdsaleEndTime, "Crowdsale Ended");
@@ -323,6 +323,9 @@ contract Crowdsale is ReentrancyGuard  {
         } else if (_stableCoin == dai) {
             tokenPurchased = amount.mul(rate);
             _stableCoin.transferFrom(msg.sender, address(this), amount);
+        }
+        else{
+            revert('Unsupported StableCoin');
         }
         
         if(tokenDecimal != 18){ 
@@ -347,15 +350,17 @@ contract Crowdsale is ReentrancyGuard  {
      * @return _totalDrawn
      * @return _lastDrawnAt
      * @return _remainingBalance
+     * @return _availableForDrawDown
      */
     function vestingScheduleForBeneficiary(address _investor)
     external view
-    returns (uint256 _amount, uint256 _totalDrawn, uint256 _lastDrawnAt, uint256 _remainingBalance) {
+    returns (uint256 _amount, uint256 _totalDrawn, uint256 _lastDrawnAt, uint256 _remainingBalance, uint256 _availableForDrawDown) {
         return (
         vestedAmount[_investor],
         totalDrawn[_investor],
         lastDrawnAt[_investor],
-        vestedAmount[_investor].sub(totalDrawn[_investor])
+        vestedAmount[_investor].sub(totalDrawn[_investor]),
+        _availableDrawDownAmount(_investor)
         );
     }
 
@@ -364,10 +369,14 @@ contract Crowdsale is ReentrancyGuard  {
      * @param _investor beneficiary of the vested tokens
      * @return _amount tokens due from vesting schedule
      */
-    function availableDrawDownAmount(address _investor) internal view returns (uint256 _amount) {
-
+    function availableDrawDownAmount(address _investor) external view returns (uint256 _amount) {
+        return _availableDrawDownAmount(_investor);
+    }
+    
+    function _availableDrawDownAmount(address _investor) internal view returns (uint256 _amount) {
+        
         // Cliff Period
-        if (_getNow() <= vestingStart.add(cliffDuration)) {
+        if (_getNow() <= vestingStart.add(cliffDuration) || vestingStart == 0) {
             // the cliff period has not ended, no tokens to draw down
             return 0;
         }
@@ -403,7 +412,7 @@ contract Crowdsale is ReentrancyGuard  {
     function _drawDown(address _investor) internal {
         require(vestedAmount[_investor] > 0, "There is no schedule currently in flight");
 
-        uint256 amount = availableDrawDownAmount(_investor);
+        uint256 amount = _availableDrawDownAmount(_investor);
         require(amount > 0, "No allowance left to withdraw");
 
         // Update last drawn to now

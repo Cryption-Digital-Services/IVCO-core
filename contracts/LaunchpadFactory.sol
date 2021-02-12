@@ -34,20 +34,21 @@ contract LaunchpadFactory {
         _preValidateAddress(_tokenAddress);
         require(_crowdsaleStartTime >= block.timestamp, 'Crowdsale Start time should be greater than current time'); // ideally at least 24 hours more to give investors time
         require(_crowdsaleEndTime > _crowdsaleStartTime || _crowdsaleEndTime == 0, 'Crowdsale End Time can either be greater than _crowdsaleStartTime or 0');  //_crowdsaleEndTime = 0 means crowdsale would be concluded manually by owner
+        require(_amountAllocation > 0, 'Allocate some amount to start Crowdsale');
+        require(address(_tokenAddress) != address(0), 'Invalid Token address');
+        require(_rate > 0, 'Rate cannot be Zero'); 
         
+                
         if(_crowdsaleEndTime == 0){ // vesting Data would be 0 & can be set when crowdsale is ended manually by owner to avoid confusion
             _vestingStartTime = 0;
             _vestingEndTime = 0;
             _cliffDurationInSecs = 0;
         }
+        else if(_crowdsaleEndTime >_crowdsaleStartTime){
+            require(_vestingStartTime >= _crowdsaleEndTime, 'Vesting Start time should be greater or equal to Crowdsale EndTime');
+            require(_vestingEndTime > _vestingStartTime.add(_cliffDurationInSecs), 'Vesting End Time should be after the cliffPeriod');
+        }
         
-        require(_vestingStartTime >= _crowdsaleEndTime, 'Vesting Start time should be greater or equal to Crowdsale EndTime');
-        require(_vestingEndTime > _vestingStartTime.add(_cliffDurationInSecs), 'Vesting End Time should be after the cliffPeriod');
-
-        require(_amountAllocation > 0, 'Allocate some amount to start Crowdsale');
-        require(address(_tokenAddress) != address(0), 'Invalid Token address');
-        require(_rate > 0, 'Rate cannot be Zero'); 
-
         TransferHelper.safeTransferFrom(address(_tokenAddress), address(msg.sender), address(this), _amountAllocation);
         Crowdsale newCrowdsale = new Crowdsale(_owner,address(this));
         TransferHelper.safeApprove(address(_tokenAddress), address(newCrowdsale), _amountAllocation);
