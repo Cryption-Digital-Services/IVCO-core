@@ -216,9 +216,9 @@ contract Crowdsale is ReentrancyGuard  {
     /// @notice of LaunchpadFactory Contract
     address public LaunchpadFactory;    
     
-    IERC20 private usdc = IERC20(0xd306B598B6ba5696f5A628988F93cC981983103d);   //0xb7a4F3E9097C08dA09517b5aB877F7a917224ede mainnet addresses
+    IERC20 private usdc = IERC20(0xC1e7958EA57c742fe8f3278388a94B53998DDBe5);   //0xb7a4F3E9097C08dA09517b5aB877F7a917224ede mainnet addresses
     IERC20 private dai = IERC20(0x34737f90FD62BC9B897760Cd16F3dFa4418096E1);    //0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa
-    IERC20 private usdt = IERC20(0xcc187aA982e3001D86bc954ED1a817D97500EC2C);   //0x07de306FF27a2B630B1141956844eB1552B956B5 
+    IERC20 private usdt = IERC20(0x9093F303C897717edaD0445C26BD0B33Fe45fD11);   //0x07de306FF27a2B630B1141956844eB1552B956B5 
 
     /// @notice start of vesting period as a timestamp
     uint256 public vestingStart;
@@ -307,32 +307,31 @@ contract Crowdsale is ReentrancyGuard  {
     
     function buyTokenWithStableCoin(IERC20 _stableCoin, uint256 amount) external {   
         require(_getNow() >= crowdsaleStartTime,"Crowdsale isnt started yet");
-        
+        require(_stableCoin == usdt || _stableCoin == usdc || _stableCoin == dai,'Unsupported StableCoin');
         if(crowdsaleEndTime != 0){
             require(_getNow() < crowdsaleEndTime, "Crowdsale Ended");
         }
         
-        uint256 tokenPurchased;
+        uint256 tokenPurchased = amount.mul(rate);
         
-        if (_stableCoin == usdt) {
-            tokenPurchased = amount.mul(1e12).mul(rate);
-            doTransferIn(address(_stableCoin), msg.sender, amount);
-        } else if (_stableCoin == usdc) {
-            tokenPurchased = amount.mul(1e12).mul(rate);
-            _stableCoin.transferFrom(msg.sender, address(this), amount);
-        } else if (_stableCoin == dai) {
-            tokenPurchased = amount.mul(rate);
-            _stableCoin.transferFrom(msg.sender, address(this), amount);
-        }
-        else{
-            revert('Unsupported StableCoin');
+        if (_stableCoin != dai) {
+            tokenPurchased.mul(1e12);
         }
         
         if(tokenDecimal != 18){ 
             tokenPurchased = tokenDecimal > 18 ? tokenPurchased.mul(10**(tokenDecimal-18)) : tokenPurchased.div(10**(18-tokenDecimal)) ;
         }
-        _updateVestingSchedule(msg.sender, tokenPurchased);
+        require(tokenPurchased > tokenRemainingForSale,"Exceeding purchase amount");
+        
+        if(_stableCoin == usdt){
+          doTransferIn(address(_stableCoin), msg.sender, amount) ;  
+        }
+        else{
+            _stableCoin.transferFrom(msg.sender, address(this), amount);
+            
+        }
         tokenRemainingForSale = tokenRemainingForSale.sub(tokenPurchased);
+        _updateVestingSchedule(msg.sender, tokenPurchased);
         
         emit TokenPurchase(msg.sender,amount,tokenPurchased,_stableCoin,tokenRemainingForSale);
     }
