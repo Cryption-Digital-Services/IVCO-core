@@ -321,7 +321,7 @@ contract Crowdsale is ReentrancyGuard  {
         if(tokenDecimal != 18){ 
             tokenPurchased = tokenDecimal > 18 ? tokenPurchased.mul(10**(tokenDecimal-18)) : tokenPurchased.div(10**(18-tokenDecimal)) ;
         }
-        require(tokenPurchased > tokenRemainingForSale,"Exceeding purchase amount");
+        require(tokenPurchased <= tokenRemainingForSale,"Exceeding purchase amount");
         
         if(_stableCoin == usdt){
           doTransferIn(address(_stableCoin), msg.sender, amount) ;  
