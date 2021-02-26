@@ -305,35 +305,30 @@ contract Crowdsale is ReentrancyGuard  {
         _;
     }
     
-    function buyTokenWithStableCoin(IERC20 _stableCoin, uint256 amount) external {   
+    function buyTokenWithStableCoin(IERC20 _stableCoin, uint256 _stableCoinAmount) external {   
         require(_getNow() >= crowdsaleStartTime,"Crowdsale isnt started yet");
         require(_stableCoin == usdt || _stableCoin == usdc || _stableCoin == dai,'Unsupported StableCoin');
         if(crowdsaleEndTime != 0){
             require(_getNow() < crowdsaleEndTime, "Crowdsale Ended");
         }
         
-        uint256 tokenPurchased = amount.mul(rate);
-        
-        if (_stableCoin != dai) {
-            tokenPurchased.mul(1e12);
-        }
-        
-        if(tokenDecimal != 18){ 
-            tokenPurchased = tokenDecimal > 18 ? tokenPurchased.mul(10**(tokenDecimal-18)) : tokenPurchased.div(10**(18-tokenDecimal)) ;
-        }
+        uint256 tokenPurchased = _stableCoin == dai ? _stableCoinAmount.mul(rate) : _stableCoinAmount.mul(rate).mul(1e12);
+         
+        tokenPurchased = tokenDecimal >= 36 ? tokenPurchased.mul(10**(tokenDecimal-36)) : tokenPurchased.div(10**(36-tokenDecimal)) ;
+
         require(tokenPurchased <= tokenRemainingForSale,"Exceeding purchase amount");
         
         if(_stableCoin == usdt){
-          doTransferIn(address(_stableCoin), msg.sender, amount) ;  
+          doTransferIn(address(_stableCoin), msg.sender, _stableCoinAmount) ;  
         }
         else{
-            _stableCoin.transferFrom(msg.sender, address(this), amount);
+            _stableCoin.transferFrom(msg.sender, address(this), _stableCoinAmount);
             
         }
         tokenRemainingForSale = tokenRemainingForSale.sub(tokenPurchased);
         _updateVestingSchedule(msg.sender, tokenPurchased);
         
-        emit TokenPurchase(msg.sender,amount,tokenPurchased,_stableCoin,tokenRemainingForSale);
+        emit TokenPurchase(msg.sender,_stableCoinAmount,tokenPurchased,_stableCoin,tokenRemainingForSale);
     }
     
     function _updateVestingSchedule(address _investor, uint256 _amount) internal {
